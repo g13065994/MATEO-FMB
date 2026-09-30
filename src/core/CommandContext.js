@@ -7,6 +7,9 @@ class CommandContext {
     this.groups = services.groups;
     this.users = services.users;
     this.moderation = services.moderation;
+    this.scheduler = services.scheduler;
+    this.backup = services.backup;
+    this.plugins = services.plugins;
     this.formatter = services.formatter;
     this.user = null;
     this.group = null;
