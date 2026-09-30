@@ -31,4 +31,5 @@ jobs:
             exit 0
           fi
           git commit -m 'chore: refresh npm lockfile for platform adapter'
-          git push
+          git pull --rebase --autostash origin V1.0.0
+          git push origin HEAD:V1.0.0
