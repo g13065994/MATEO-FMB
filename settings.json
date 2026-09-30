@@ -6,15 +6,45 @@
   "welcomeMessage": "Hello! I am MATEO-FMB. Type /help to see my commands.",
   "allowedGroups": [],
   "language": "en",
+  "style": {
+    "footer": "MATEO-FMB",
+    "separator": "━━━━━━━━━━━━━━━━"
+  },
   "messageDelay": {
     "enabled": true,
     "minMs": 2000,
     "maxMs": 3000
   },
+  "platform": {
+    "adapter": "cexy-wonfca",
+    "autoSaveAppState": true,
+    "sessionSaveIntervalMs": 900000
+  },
+  "scheduler": {
+    "enabled": true,
+    "maxJobsPerUser": 20
+  },
+  "backups": {
+    "enabled": true,
+    "keep": 10,
+    "autoOnStart": true
+  },
+  "plugins": {
+    "enabled": true,
+    "disabled": []
+  },
+  "performance": {
+    "mode": "normal",
+    "rssLimitMb": 0
+  },
+  "ai": {
+    "endpoint": ""
+  },
   "fcaOptions": {
     "online": true,
     "updatePresence": true,
     "selfListen": false,
-    "randomUserAgent": false
+    "listenEvents": true,
+    "autoReconnect": false
   }
 }
