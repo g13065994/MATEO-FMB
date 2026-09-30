@@ -26,6 +26,7 @@ const AiMemoryStore = require('./AiMemoryStore');
 const EryxenxFcaAdapter = require('../platform/EryxenxFcaAdapter');
 const axios = require('axios');
 const AiProvider = require('../ai/AiProvider');
+const DatabaseHealthMonitor = require('./DatabaseHealthMonitor');
 
 function createPlatformAdapter(config) {
   const name = String(config?.get('platform.adapter', 'eryxenx-fca') || 'eryxenx-fca').toLowerCase();
@@ -44,6 +45,7 @@ class BotApp {
     this.scheduler = new SchedulerService({ rootDir, config: this.config, logger: this.logger });
     this.pluginManager = new PluginManager({ rootDir, config: this.config, logger: this.logger });
     this.db = createDatabase({ rootDir, config: this.config, logger: this.logger });
+    this.dbHealth = new DatabaseHealthMonitor({ db: this.db, logger: this.logger, intervalMs: this.config.get('database.healthCheckIntervalMs', 60000) });
     this.backup = new BackupManager({ rootDir, db: this.db, scheduler: this.scheduler, config: this.config, logger: this.logger });
 
     this.groups = new GroupManager(this.db);
@@ -171,6 +173,7 @@ class BotApp {
       await this.scheduler.load();
 
       this.health.start();
+      this.dbHealth.start();
       this.performance.startMonitoring();
       this.logger.info('Performance mode: ' + this.performance.mode);
       this.logger.info('Platform adapter: ' + this.platform.name);
@@ -200,6 +203,7 @@ class BotApp {
       this.errors.record(error, { scope: 'start' });
       if (safety.action === 'pause') this.connection.stopping = true;
       this.scheduler.stop();
+      this.dbHealth.stop();
       this.performance.stopMonitoring();
       await this.health.stop();
       throw error;
@@ -235,6 +239,7 @@ class BotApp {
       uptime: Date.now() - this.startedAt,
       platform: { adapter: this.platform.name, capabilities: this.platform.capabilities() },
       storage: { mode: this.config.get('storage.mode', 'sqlite'), file: this.db.file },
+      databaseHealth: this.dbHealth.status(),
       plugins: this.pluginManager.list(),
       scheduler: this.scheduler.status(),
       safety: this.safety.status(),
