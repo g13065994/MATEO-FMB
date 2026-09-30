@@ -2,7 +2,6 @@
 
 const fs = require('fs');
 const path = require('path');
-const { login } = require('ws3-fca');
 const MessageDelay = require('./MessageDelay');
 
 class AppStateError extends Error {
@@ -14,13 +13,8 @@ class AppStateError extends Error {
 }
 
 class ConnectionManager {
-  constructor({ config, state, events, logger, rootDir = process.cwd(), performance = null }) {
-    this.config = config;
-    this.state = state;
-    this.events = events;
-    this.logger = logger;
-    this.rootDir = rootDir;
-    this.performance = performance;
+  constructor({ config, state, events, logger, rootDir = process.cwd(), performance = null, adapter }) {
+    Object.assign(this, { config, state, events, logger, rootDir, performance, adapter });
     this.messageDelay = new MessageDelay({ config, logger });
     this.api = null;
     this.rawApi = null;
@@ -29,6 +23,7 @@ class ConnectionManager {
     this.reconnectTimer = null;
     this.reconnectDelay = 5000;
     this.beforeListen = null;
+    this.connectionGeneration = 0;
   }
 
   _appStatePath() {
@@ -40,11 +35,7 @@ class ConnectionManager {
     if (!fs.existsSync(file)) throw new AppStateError('MISSING', 'AppState missing');
     const raw = fs.readFileSync(file, 'utf8').trim();
     if (!raw) throw new AppStateError('MISSING', 'AppState missing');
-    try { return JSON.parse(raw); } catch (error) { throw new AppStateError('INVALID', 'AppState invalid'); }
-  }
-
-  _estimateInboundBytes(event) {
-    try { return Buffer.byteLength(JSON.stringify(event || {}), 'utf8'); } catch (_) { return 0; }
+    try { return JSON.parse(raw); } catch (_) { throw new AppStateError('INVALID', 'AppState invalid'); }
   }
 
   _wrapApi(api) {
@@ -54,7 +45,8 @@ class ConnectionManager {
         if (property === 'sendMessage') {
           return (text, threadID, ...extra) => delay.send(target, text, threadID, ...extra);
         }
-        return Reflect.get(target, property, receiver);
+        const value = Reflect.get(target, property, receiver);
+        return typeof value === 'function' ? value.bind(target) : value;
       },
     });
   }
@@ -62,30 +54,40 @@ class ConnectionManager {
   async connect({ beforeListen = null } = {}) {
     this.stopping = false;
     if (beforeListen) this.beforeListen = beforeListen;
+    const generation = ++this.connectionGeneration;
     this.state.setState('status', 'connecting');
+    this.state.setState('platform.adapter', this.adapter?.name || 'unknown');
+
     const appState = this._loadAppState();
-    const options = this.config.get('fcaOptions', {});
+    const options = {
+      ...(this.config.get('fcaOptions', {}) || {}),
+      autoReconnect: false,
+      listenEvents: true,
+    };
 
-    await new Promise((resolve, reject) => {
-      login({ appState }, options, (error, api) => {
-        if (error) {
-          this.state.setState('status', 'login_failed');
-          reject(error instanceof Error ? error : new Error(String(error)));
-          return;
-        }
-        this.rawApi = api;
-        this.api = this._wrapApi(api);
-        this.state.setState('status', 'online');
-        this.state.setState('lastConnected', new Date().toISOString());
-        this.reconnectDelay = 5000;
-        resolve();
-      });
-    });
+    let api;
+    try {
+      api = await this.adapter.login(appState, options);
+    } catch (error) {
+      this.state.setState('status', 'login_failed');
+      throw error;
+    }
 
+    this.rawApi = api;
+    this.api = this._wrapApi(api);
+    await this.adapter.afterLogin?.(api, { appStatePath: this._appStatePath(), config: this.config });
+    this.state.setState('status', 'online');
+    this.state.setState('lastConnected', new Date().toISOString());
+    this.reconnectDelay = 5000;
+
+    if (generation !== this.connectionGeneration) return this.api;
     await this.events.dispatch('authenticated', { api: this.api });
     if (typeof this.beforeListen === 'function') await this.beforeListen(this.api);
 
     this.api.listenMqtt((error, event) => {
+      if (generation !== this.connectionGeneration || this.stopping) return;
+      if (!this.adapter?.isActive(this.rawApi)) return;
+
       if (error) {
         this.state.incrementStat('errorsEncountered');
         this.events.dispatch('connection:error', error).catch(err => this.logger.error(err));
@@ -94,8 +96,10 @@ class ConnectionManager {
       }
 
       this.state.incrementStat('messagesHandled');
-      const inboundBytes = this._estimateInboundBytes(event);
+      let inboundBytes = 0;
+      try { inboundBytes = Buffer.byteLength(JSON.stringify(event || {}), 'utf8'); } catch (_) {}
       this.performance?.recordNetwork('in', inboundBytes);
+
       const payload = { api: this.api, event };
       const eventTypes = new Set(['message']);
       if (event?.type) eventTypes.add(event.type);
@@ -110,7 +114,7 @@ class ConnectionManager {
 
     this.listening = true;
     await this.events.dispatch('ready', { api: this.api });
-    this.logger.info('Facebook connection is active.');
+    this.logger.info('Facebook connection is active via ' + (this.adapter?.name || 'unknown adapter') + '.');
     return this.api;
   }
 
@@ -119,7 +123,7 @@ class ConnectionManager {
     const delay = this.reconnectDelay;
     this.reconnectDelay = Math.min(this.reconnectDelay * 2, 120000);
     this.state.setState('status', 'reconnecting');
-    this.logger.warn(`Connection lost; retrying in ${Math.round(delay / 1000)}s.`);
+    this.logger.warn('Connection lost; retrying in ' + Math.round(delay / 1000) + 's.');
 
     this.reconnectTimer = setTimeout(async () => {
       this.reconnectTimer = null;
@@ -137,6 +141,7 @@ class ConnectionManager {
   async disconnect() {
     this.stopping = true;
     this.listening = false;
+    this.connectionGeneration += 1;
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -144,7 +149,7 @@ class ConnectionManager {
     this.state.setState('status', 'stopping');
 
     try {
-      if (this.rawApi?.logout) await new Promise(resolve => this.rawApi.logout(() => resolve()));
+      await this.adapter?.disconnect(this.rawApi);
     } catch (error) {
       this.logger.warn('Logout failed:', error.message);
     } finally {
