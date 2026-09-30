@@ -214,6 +214,7 @@ class BotApp {
     this.logger.info('Shutting down (' + signal + ')...');
     try {
       this.scheduler.stop();
+      this.dbHealth.stop();
       this.performance.stopMonitoring();
       await this.connection.disconnect();
       await this.health.stop();
