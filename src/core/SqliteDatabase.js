@@ -168,6 +168,13 @@ class SqliteDatabase {
     if (this.data.history.length > limit) this.data.history = this.data.history.slice(-limit);
   }
 
+  health() {
+    this._ensureOpen();
+    const row = this.db.prepare('SELECT 1 AS ok').get();
+    if (Number(row?.ok) !== 1) throw new Error('SQLite health query failed.');
+    return true;
+  }
+
   backupTo(destination) {
     this._ensureOpen();
     fs.mkdirSync(path.dirname(destination), { recursive: true });
