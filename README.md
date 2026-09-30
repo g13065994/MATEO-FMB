@@ -83,3 +83,26 @@ Never commit AppState, `.env`, logs, database files containing private runtime d
 ## Design goals
 
 MATEO-FMB is not built around a single giant command file. The target is a resilient runtime with modular feature and control layers, so additional commands, media providers, AI integrations, economy systems and group features can be added without destabilizing the process.
+
+
+## 2027–2029 foundation
+
+MATEO-FMB now isolates the Messenger transport behind a platform adapter. The current adapter is @eryxenx/fca 1.1.9, using its NEXCA MQTT transport and sessionGuard while MATEO keeps reconnect ownership in ConnectionManager.
+
+Persistence now defaults to SQLite through Node's built-in node:sqlite, with automatic migration from the legacy db.json format. JSON remains available as a compatibility mode.
+
+Persistent scheduling is available through /remind, /jobs and /canceljob. Local database snapshots can be created with /backup or npm run backup; /restore stages a restore for the next startup.
+
+Plugins are manifest-based and may provide command and event directories under plugins/. AI now supports ordered provider fallback plus bounded per-thread memory.
+
+Runtime status includes platform capabilities, database health, scheduler state, plugin state, recovery information and performance telemetry.
+
+Maintenance baseline:
+
+    npm ci
+    npm test
+    npm run doctor
+
+Node.js 22+ is required. CI validates Node 22 and Node 24.
+
+Never commit AppState, .env, runtime databases, scheduler state, AI memory or backups containing private runtime data.
