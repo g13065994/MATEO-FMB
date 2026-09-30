@@ -21,6 +21,9 @@ const PerformanceManager = require('./PerformanceManager');
 const RecoveryManager = require('./RecoveryManager');
 const axios = require('axios');
 const AiProvider = require('../ai/AiProvider');
+const PluginRegistry = require('./PluginRegistry');
+const Scheduler = require('./Scheduler');
+const I18n = require('./I18n');
 
 class BotApp {
   constructor({ rootDir = process.cwd() } = {}) {
@@ -39,13 +42,16 @@ class BotApp {
     this.performance = new PerformanceManager({ config: this.config, state: this.state, logger: this.logger });
     this.recovery = new RecoveryManager({ state: this.state, logger: this.logger, safety: this.safety, performance: this.performance });
     this.ai = new AiProvider({ axios, config: this.config, performance: this.performance });
+    this.plugins = new PluginRegistry({ commandsDir: path.join(rootDir, 'src', 'cmds'), logger: this.logger });
+    this.scheduler = new Scheduler(this.logger);
+    this.i18n = new I18n({ rootDir, logger: this.logger });
     this.moderation = new ModerationManager({ db: this.db, groups: this.groups, permissions: this.permissions, state: this.state, logger: this.logger });
     this.connection = new ConnectionManager({ config: this.config, state: this.state, events: this.events, logger: this.logger, rootDir, performance: this.performance });
 
     const services = {
       ai: this.ai, groups: this.groups, users: this.users, moderation: this.moderation,
       formatter: this.formatter, errors: this.errors, safety: this.safety, performance: this.performance,
-      recovery: this.recovery,
+      recovery: this.recovery, plugins: this.plugins, scheduler: this.scheduler, i18n: this.i18n,
     };
 
     this.commands = new CommandRegistry({ commandsDir: path.join(rootDir, 'src', 'cmds'), config: this.config,
@@ -62,6 +68,7 @@ class BotApp {
     if (this._initialized) return this;
     try {
       this.eventLoader.load();
+      this.plugins.load();
       this.events.on('message', async ({ api, event }) => {
         try {
           if (event?.senderID) await this.users.recordMessage(event.senderID, event.senderName || '');
@@ -107,6 +114,7 @@ class BotApp {
     await this.init();
     try {
       this.health.start();
+      this.scheduler.every('database-flush', 60000, () => this.db.write());
       this.performance.startMonitoring();
       this.logger.info(`Performance mode: ${this.performance.mode}.`);
       this.logger.info('Loading credentials...');
@@ -138,6 +146,7 @@ class BotApp {
     this.logger.info(`Shutting down (${signal})...`);
     try {
       this.performance.stopMonitoring();
+      this.scheduler.stopAll();
       await this.connection.disconnect();
       await this.health.stop();
       this.state.setState('status', 'offline');
@@ -154,6 +163,9 @@ class BotApp {
       ...status,
       botName: this.config.get('botName'),
       commands: this.commands.commands.size,
+      plugins: this.plugins.list(),
+      scheduledJobs: this.scheduler.list(),
+      language: this.config.get('language', 'en'),
       users: this.db.data?.users?.length || 0,
       groups: this.db.data?.groups?.length || 0,
       connected: Boolean(this.connection.api),
