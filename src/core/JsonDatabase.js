@@ -12,17 +12,15 @@ const EMPTY_DB = {
 const clone = value => JSON.parse(JSON.stringify(value));
 
 class JsonDatabase {
-  constructor({ rootDir = process.cwd(), logger } = {}) {
+  constructor({ rootDir = process.cwd(), logger, config } = {}) {
     this.logger = logger;
-    this.file = path.join(rootDir, process.env.MATEO_DB_FILE || 'db.json');
+    const configured = config?.get('storage.legacyJsonFile') || process.env.MATEO_DB_FILE || 'db.json';
+    this.file = path.resolve(rootDir, configured);
     this.data = null;
     this.writeQueue = Promise.resolve();
   }
 
-  async init() {
-    await this.read();
-    return this;
-  }
+  async init() { await this.read(); return this; }
 
   async read() {
     if (!fs.existsSync(this.file)) {
@@ -33,14 +31,12 @@ class JsonDatabase {
     try {
       const parsed = JSON.parse(fs.readFileSync(this.file, 'utf8'));
       this.data = { ...clone(EMPTY_DB), ...parsed };
-      if (!Array.isArray(this.data.users)) this.data.users = [];
-      if (!Array.isArray(this.data.groups)) this.data.groups = [];
-      if (!Array.isArray(this.data.history)) this.data.history = [];
-      this.data.history = this.data.history.slice(-5000);
-      if (!this.data.statistics || typeof this.data.statistics !== 'object') this.data.statistics = clone(EMPTY_DB.statistics);
-      this.data.statistics = { ...clone(EMPTY_DB.statistics), ...this.data.statistics };
+      this.data.users = Array.isArray(this.data.users) ? this.data.users : [];
+      this.data.groups = Array.isArray(this.data.groups) ? this.data.groups : [];
+      this.data.history = Array.isArray(this.data.history) ? this.data.history.slice(-5000) : [];
+      this.data.statistics = { ...clone(EMPTY_DB.statistics), ...(this.data.statistics || {}) };
     } catch (error) {
-      throw new Error(`Invalid database file ${this.file}: ${error.message}`);
+      throw new Error('Invalid database file ' + this.file + ': ' + error.message);
     }
     return this.data;
   }
@@ -53,7 +49,7 @@ class JsonDatabase {
   _writeNow() {
     if (!this.data) this.data = clone(EMPTY_DB);
     fs.mkdirSync(path.dirname(this.file), { recursive: true });
-    const tempFile = `${this.file}.${process.pid}.tmp`;
+    const tempFile = this.file + '.' + process.pid + '.tmp';
     fs.writeFileSync(tempFile, JSON.stringify(this.data, null, 2), 'utf8');
     fs.renameSync(tempFile, this.file);
   }
@@ -73,9 +69,7 @@ class JsonDatabase {
     return this.data.statistics[name];
   }
 
-  getUser(userID) {
-    return this.data?.users?.find(user => String(user.userID) === String(userID)) || null;
-  }
+  getUser(userID) { return this.data?.users?.find(user => String(user.userID) === String(userID)) || null; }
 
   async ensureUser(userID, name = '') {
     if (!userID) return null;
@@ -92,9 +86,7 @@ class JsonDatabase {
     return user;
   }
 
-  getGroup(threadID) {
-    return this.data?.groups?.find(group => String(group.threadID) === String(threadID)) || null;
-  }
+  getGroup(threadID) { return this.data?.groups?.find(group => String(group.threadID) === String(threadID)) || null; }
 
   async ensureGroup(threadID, defaults = {}) {
     if (!threadID) return null;
@@ -112,6 +104,13 @@ class JsonDatabase {
     this.data.history.push({ ...entry, timestamp: entry.timestamp || new Date().toISOString() });
     if (this.data.history.length > limit) this.data.history = this.data.history.slice(-limit);
   }
+
+  backupTo(destination) {
+    fs.mkdirSync(path.dirname(destination), { recursive: true });
+    fs.copyFileSync(this.file, destination);
+  }
+
+  close() {}
 }
 
 module.exports = JsonDatabase;
