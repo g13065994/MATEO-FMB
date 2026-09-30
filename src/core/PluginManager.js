@@ -16,7 +16,7 @@ class PluginManager {
 
   _disabled() {
     const value = this.config?.get('plugins.disabled', []);
-    return new Set(Array.isArray(value) ? value.map(String) : []);
+    return new Set(Array.isArray(value) ? value.map(String).map(v => v.toLowerCase()) : []);
   }
 
   discover() {
@@ -24,10 +24,12 @@ class PluginManager {
     fs.mkdirSync(this.dir, { recursive: true });
     this.plugins.clear();
     const disabled = this._disabled();
+
     for (const entry of fs.readdirSync(this.dir, { withFileTypes: true })) {
       if (!entry.isDirectory()) continue;
       const manifestPath = path.join(this.dir, entry.name, 'manifest.json');
       if (!fs.existsSync(manifestPath)) continue;
+
       try {
         const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
         if (!manifest?.name) throw new Error('manifest.name is required');
@@ -43,6 +45,7 @@ class PluginManager {
         this.logger?.warn('Plugin manifest rejected in ' + entry.name + ': ' + error.message);
       }
     }
+
     return [...this.plugins.values()];
   }
 
