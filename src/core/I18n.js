@@ -1,0 +1,8 @@
+'use strict';
+const fs=require('fs');const path=require('path');
+class I18n{
+ constructor({rootDir=process.cwd(),logger}={}){this.logger=logger;this.dir=path.join(rootDir,'languages');this.cache=new Map()}
+ load(locale='en'){const key=String(locale||'en').toLowerCase();if(this.cache.has(key))return this.cache.get(key);const file=path.join(this.dir,`${key}.json`);let data={};try{data=JSON.parse(fs.readFileSync(file,'utf8'))}catch(e){if(key!=='en')return this.load('en');this.logger?.warn?.(`Language load failed: ${e.message}`)}this.cache.set(key,data);return data}
+ t(key,replacements={},locale='en'){let text=this.load(locale)[key]??this.load('en')[key]??key;for(const [k,v] of Object.entries(replacements))text=String(text).replace(new RegExp(`{{${k}}}`,'g'),String(v));return text}
+}
+module.exports=I18n;
