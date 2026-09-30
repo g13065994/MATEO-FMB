@@ -19,6 +19,7 @@ class SchedulerService {
   enabled() { return this.config?.get('scheduler.enabled', true) !== false; }
   _tickMs() { return Math.max(1000, Number(this.config?.get('scheduler.tickMs', 10000)) || 10000); }
   _maxJobs() { return Math.max(1, Number(this.config?.get('scheduler.maxJobsPerUser', 20)) || 20); }
+  _retentionMs() { return 7 * 86400000; }
 
   async load() {
     fs.mkdirSync(path.dirname(this.file), { recursive: true });
@@ -30,6 +31,7 @@ class SchedulerService {
     try {
       const parsed = JSON.parse(fs.readFileSync(this.file, 'utf8'));
       this.jobs = Array.isArray(parsed?.jobs) ? parsed.jobs : [];
+      this._cleanup();
     } catch (error) {
       this.logger?.warn('Scheduler state invalid; resetting: ' + error.message);
       this.jobs = [];
@@ -45,6 +47,11 @@ class SchedulerService {
       fs.renameSync(temp, this.file);
     });
     return this.writeQueue;
+  }
+
+  _cleanup() {
+    const cutoff = Date.now() - this._retentionMs();
+    this.jobs = this.jobs.filter(job => !job.completed || new Date(job.completedAt || job.createdAt || 0).getTime() >= cutoff);
   }
 
   static parseDuration(value) {
@@ -73,7 +80,8 @@ class SchedulerService {
       repeatMs: Math.max(0, Number(repeatMs) || 0),
       attempts: 0,
       createdAt: new Date().toISOString(),
-      completed: false
+      completed: false,
+      completedAt: null
     };
     this.jobs.push(job);
     await this._persist();
@@ -107,7 +115,9 @@ class SchedulerService {
     const now = Date.now();
     const due = this.jobs.filter(job => !job.completed && job.runAt <= now);
     for (const job of due) await this._run(job);
-    if (due.length) await this._persist();
+    const before = this.jobs.length;
+    this._cleanup();
+    if (due.length || this.jobs.length !== before) await this._persist();
   }
 
   async _run(job) {
@@ -116,13 +126,18 @@ class SchedulerService {
     try {
       await api.sendMessage(job.text, job.threadID);
       job.attempts = 0;
-      if (job.repeatMs > 0) job.runAt = Date.now() + job.repeatMs;
-      else job.completed = true;
+      if (job.repeatMs > 0) {
+        job.runAt = Date.now() + job.repeatMs;
+      } else {
+        job.completed = true;
+        job.completedAt = new Date().toISOString();
+      }
     } catch (error) {
       job.attempts = Number(job.attempts || 0) + 1;
       const maxAttempts = Math.max(1, Number(this.config?.get('scheduler.maxAttempts', 3)) || 3);
       if (job.attempts >= maxAttempts) {
         job.completed = true;
+        job.completedAt = new Date().toISOString();
         this.logger?.error('Scheduled job ' + job.id + ' disabled after ' + job.attempts + ' failed attempts: ' + error.message);
       } else {
         const retry = Math.max(1000, Number(this.config?.get('scheduler.retryDelayMs', 60000)) || 60000);
