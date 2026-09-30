@@ -5,7 +5,7 @@ const path = require('path');
 
 const DEFAULTS = {
   botName: 'MATEO-FMB',
-  version: '0.3.0',
+  version: '1.1.0',
   tagline: 'A modern Messenger bot.',
   prefix: '/',
   adminIDs: [],
@@ -14,10 +14,15 @@ const DEFAULTS = {
   allowedGroups: [],
   language: 'en',
   style: { footer: 'MATEO-FMB', separator: '━━━━━━━━━━━━━━━━' },
-  ai: { endpoint: '' },
+  storage: { mode: 'sqlite', sqliteFile: 'data/mateo.sqlite', legacyJsonFile: 'db.json' },
+  platform: { adapter: 'eryxenx-fca', autoSaveAppState: true, sessionSaveIntervalMs: 900000, sessionDebounceMs: 30000 },
+  scheduler: { enabled: true, tickMs: 10000, maxJobsPerUser: 20, retryDelayMs: 60000, maxAttempts: 3 },
+  backups: { enabled: true, keep: 10, autoOnStart: true },
+  plugins: { enabled: true, disabled: [] },
+  ai: { endpoint: '', method: 'GET', timeoutMs: 30000, providers: [] },
   performance: { mode: 'normal', rssLimitMb: 0 },
   messageDelay: { enabled: true, minMs: 2000, maxMs: 3000 },
-  fcaOptions: { online: true, updatePresence: true, selfListen: false, randomUserAgent: false },
+  fcaOptions: { online: true, updatePresence: true, selfListen: false, listenEvents: true, autoReconnect: false }
 };
 
 const clone = value => JSON.parse(JSON.stringify(value));
@@ -44,7 +49,7 @@ class ConfigManager {
     let userConfig = {};
     if (fs.existsSync(this.file)) {
       try { userConfig = JSON.parse(fs.readFileSync(this.file, 'utf8')); }
-      catch (error) { throw new Error(`Invalid configuration file ${this.file}: ${error.message}`); }
+      catch (error) { throw new Error('Invalid configuration file ' + this.file + ': ' + error.message); }
     }
     const config = merge(clone(DEFAULTS), userConfig);
     config.botName = process.env.MATEO_BOT_NAME || config.botName;
@@ -53,12 +58,15 @@ class ConfigManager {
     config.ownerID = process.env.MATEO_OWNER_ID || config.ownerID;
     config.ai.endpoint = process.env.MATEO_AI_ENDPOINT || config.ai.endpoint;
     config.performance.mode = String(process.env.MATEO_PERFORMANCE || config.performance.mode || 'normal').toLowerCase();
+
     const rssLimitMb = Number(process.env.MATEO_RSS_LIMIT_MB || config.performance.rssLimitMb || 0);
     config.performance.rssLimitMb = Number.isFinite(rssLimitMb) && rssLimitMb > 0 ? rssLimitMb : 0;
+
     const minDelay = Number(process.env.MATEO_MESSAGE_DELAY_MIN_MS || config.messageDelay.minMs || 0);
     const maxDelay = Number(process.env.MATEO_MESSAGE_DELAY_MAX_MS || config.messageDelay.maxMs || minDelay);
     config.messageDelay.minMs = Number.isFinite(minDelay) && minDelay >= 0 ? minDelay : 2000;
     config.messageDelay.maxMs = Number.isFinite(maxDelay) && maxDelay >= config.messageDelay.minMs ? maxDelay : config.messageDelay.minMs;
+
     if (process.env.MATEO_MESSAGE_DELAY_ENABLED !== undefined) {
       config.messageDelay.enabled = !['0', 'false', 'off', 'no'].includes(String(process.env.MATEO_MESSAGE_DELAY_ENABLED).toLowerCase());
     }
@@ -85,8 +93,8 @@ class ConfigManager {
 
   save() {
     fs.mkdirSync(path.dirname(this.file), { recursive: true });
-    const tempFile = `${this.file}.${process.pid}.tmp`;
-    fs.writeFileSync(tempFile, `${JSON.stringify(this.config, null, 2)}\n`, 'utf8');
+    const tempFile = this.file + '.' + process.pid + '.tmp';
+    fs.writeFileSync(tempFile, JSON.stringify(this.config, null, 2) + '\n', 'utf8');
     fs.renameSync(tempFile, this.file);
     return this;
   }
