@@ -10,19 +10,23 @@
     "footer": "MATEO-FMB",
     "separator": "━━━━━━━━━━━━━━━━"
   },
-  "messageDelay": {
-    "enabled": true,
-    "minMs": 2000,
-    "maxMs": 3000
+  "storage": {
+    "mode": "sqlite",
+    "sqliteFile": "data/mateo.sqlite",
+    "legacyJsonFile": "db.json"
   },
   "platform": {
-    "adapter": "cexy-wonfca",
+    "adapter": "eryxenx-fca",
     "autoSaveAppState": true,
-    "sessionSaveIntervalMs": 900000
+    "sessionSaveIntervalMs": 900000,
+    "sessionDebounceMs": 30000
   },
   "scheduler": {
     "enabled": true,
-    "maxJobsPerUser": 20
+    "tickMs": 10000,
+    "maxJobsPerUser": 20,
+    "retryDelayMs": 60000,
+    "maxAttempts": 3
   },
   "backups": {
     "enabled": true,
@@ -38,7 +42,10 @@
     "rssLimitMb": 0
   },
   "ai": {
-    "endpoint": ""
+    "endpoint": "",
+    "method": "GET",
+    "timeoutMs": 30000,
+    "providers": []
   },
   "fcaOptions": {
     "online": true,
