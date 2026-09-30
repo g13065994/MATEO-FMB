@@ -6,13 +6,15 @@
   "scripts": {
     "start": "node index.js",
     "dev": "node index.js",
-    "test": "node --test"
+    "test": "node --test",
+    "doctor": "node scripts/doctor.js",
+    "backup": "node scripts/backup.js"
   },
   "engines": {
     "node": ">=22"
   },
   "dependencies": {
-    "@cexy/wonfca": "1.1.9",
+    "@eryxenx/fca": "1.1.9",
     "axios": "^1.7.9"
   },
   "author": "MATEO-FMB Contributors",
