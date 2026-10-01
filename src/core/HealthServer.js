@@ -53,6 +53,14 @@ class HealthServer {
           const ready = status.status === 'online' && status.connected && status.safety?.status !== 'suspected_suspension';
           return this._send(res, ready ? 200 : 503, { ok: ready, status: status.status, connected: status.connected, safety: status.safety?.status });
         }
+        if (url.pathname === '/payments/paystack/webhook' && req.method === 'POST') {
+          const rawBody = await this._readBody(req);
+          const signature = req.headers['x-paystack-signature'] || '';
+          const service = this.app.freeFirePurchase;
+          if (!service?.verifyPaystackWebhook(rawBody, signature)) return this._send(res, 401, { error: 'invalid_signature' });
+          const result = await service.handlePaystackWebhook(JSON.parse(rawBody));
+          return this._send(res, 200, { ok: true, ...result });
+        }
         if (url.pathname === '/ff/webhook' && req.method === 'POST') {
           const rawBody = await this._readBody(req);
           const timestamp = req.headers['x-webhook-timestamp'] || '';
