@@ -29,6 +29,7 @@ function printConfig(app) {
   console.log(`  Config > appstate: ${process.env.MATEO_APPSTATE_FILE || 'appstate.json'}`);
   console.log(`  Config > admins: ${app.config.get('adminIDs', []).length}`);
   console.log(`  Config > performance: ${app.performance.mode}`);
+  console.log(`  Config > Mateo control plane: ${app.mateo.enabled ? 'enabled' : 'disabled'}`);
 }
 
 async function main() {

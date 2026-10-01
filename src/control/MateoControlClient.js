@@ -1,0 +1,244 @@
+'use strict';
+
+const axios = require('axios');
+
+const DEFAULT_BASE_URL = 'https://api.mateobot.vercel.app';
+
+class MateoControlClient {
+  constructor({ config, logger, version = 'unknown', platform = 'messenger' } = {}) {
+    this.config = config;
+    this.logger = logger;
+    this.version = version;
+    this.platform = platform;
+    this.baseUrl = String(process.env.MATEO_API_BASE_URL || config?.get('mateo.apiBaseUrl', DEFAULT_BASE_URL) || DEFAULT_BASE_URL).replace(/\/+$/, '');
+    this.apiVersion = String(process.env.MATEO_API_VERSION || config?.get('mateo.apiVersion', 'v1') || 'v1');
+    this.botKey = String(process.env.MATEO_BOT_KEY || '').trim();
+    this.channel = String(process.env.MATEO_UPDATE_CHANNEL || config?.get('mateo.updateChannel', 'stable') || 'stable');
+    this.heartbeatIntervalMs = this._positiveInt(process.env.MATEO_HEARTBEAT_INTERVAL_MS || config?.get('mateo.heartbeatIntervalMs', 300000), 300000);
+    this.updateCheckIntervalMs = this._positiveInt(process.env.MATEO_UPDATE_CHECK_INTERVAL_MS || config?.get('mateo.updateCheckIntervalMs', 21600000), 21600000);
+    this.accessToken = null;
+    this.expiresAt = null;
+    this.installationId = String(process.env.MATEO_INSTALLATION_ID || '').trim() || null;
+    this.authenticated = false;
+    this.lastError = null;
+    this.lastHeartbeatAt = null;
+    this.lastUpdateCheckAt = null;
+    this.latestRelease = null;
+    this._heartbeatTimer = null;
+    this._updateTimer = null;
+    this._connecting = null;
+  }
+
+  _positiveInt(value, fallback) {
+    const n = Number(value);
+    return Number.isSafeInteger(n) && n > 0 ? n : fallback;
+  }
+
+  get enabled() {
+    return Boolean(this.botKey);
+  }
+
+  _url(path) {
+    return this.baseUrl + '/api/fmb/' + this.apiVersion + path;
+  }
+
+  _publicUrl(path) {
+    return this.baseUrl + '/api/fmb/' + this.apiVersion + path;
+  }
+
+  async _request(method, path, { data, params, auth = true, timeout = 15000 } = {}) {
+    if (auth && !this.accessToken) throw new Error('mateo_not_authenticated');
+    try {
+      const response = await axios.request({
+        method,
+        url: this._url(path),
+        data,
+        params,
+        timeout,
+        headers: auth ? { Authorization: 'Bearer ' + this.accessToken } : undefined,
+        validateStatus: () => true
+      });
+      if (response.status < 200 || response.status >= 300) {
+        const code = response.data?.error || ('http_' + response.status);
+        const error = new Error('mateo_' + code);
+        error.status = response.status;
+        throw error;
+      }
+      return response.data;
+    } catch (error) {
+      this.lastError = error.message || String(error);
+      throw error;
+    }
+  }
+
+  async authenticate() {
+    if (!this.enabled) return { enabled: false };
+    if (this._connecting) return this._connecting;
+    this._connecting = (async () => {
+      const challenge = await axios.post(this._url('/auth/challenge'), {}, {
+        timeout: 15000,
+        validateStatus: () => true
+      });
+      if (challenge.status < 200 || challenge.status >= 300) {
+        throw new Error('mateo_challenge_unavailable');
+      }
+
+      const session = await axios.post(this._url('/auth/session'), {
+        key: this.botKey,
+        challengeId: challenge.data.id
+      }, {
+        timeout: 15000,
+        validateStatus: () => true
+      });
+      if (session.status < 200 || session.status >= 300) {
+        throw new Error('mateo_authentication_failed');
+      }
+
+      this.accessToken = session.data.accessToken;
+      this.expiresAt = session.data.expiresAt || null;
+      this.installationId = session.data.installationId || this.installationId;
+      this.authenticated = true;
+      this.lastError = null;
+      this.logger?.info('[MATEO] Control plane authenticated. Installation: ' + (this.installationId || 'unknown'));
+      return {
+        enabled: true,
+        installationId: this.installationId,
+        apiVersion: session.data.apiVersion || this.apiVersion,
+        expiresAt: this.expiresAt
+      };
+    })().finally(() => {
+      this._connecting = null;
+    });
+    return this._connecting;
+  }
+
+  async _withReauth(fn) {
+    try {
+      return await fn();
+    } catch (error) {
+      if (error?.status === 401 && this.enabled) {
+        this.accessToken = null;
+        this.authenticated = false;
+        await this.authenticate();
+        return fn();
+      }
+      throw error;
+    }
+  }
+
+  async heartbeat(app) {
+    if (!this.enabled) return { enabled: false };
+    if (!this.authenticated) await this.authenticate();
+    const status = app?.status?.() || {};
+    const memory = process.memoryUsage();
+    const payload = {
+      botVersion: this.version,
+      apiVersion: this.apiVersion,
+      platform: process.platform + ':' + this.platform,
+      arch: process.arch,
+      uptimeSeconds: Math.floor(process.uptime()),
+      memoryUsedBytes: memory.rss,
+      commandCount: Number.isSafeInteger(status.commands) ? status.commands : null,
+      capabilities: {
+        controlPlane: true,
+        heartbeat: true,
+        updateCheck: true,
+        signedManifests: false,
+        rollback: false,
+        commandRegistry: false,
+        storage: status.storage?.mode || 'unknown',
+        adapter: status.platform?.adapter || 'unknown'
+      }
+    };
+
+    const result = await this._withReauth(() => this._request('POST', '/installation/heartbeat', { data: payload }));
+    this.lastHeartbeatAt = new Date().toISOString();
+    return result;
+  }
+
+  async checkForUpdates() {
+    if (!this.enabled) return { enabled: false };
+    if (!this.authenticated) await this.authenticate();
+    const result = await this._withReauth(() => this._request('GET', '/updates/check', {
+      params: { channel: this.channel }
+    }));
+    this.lastUpdateCheckAt = new Date().toISOString();
+    this.latestRelease = result.latest || null;
+    return result;
+  }
+
+  async features() {
+    if (!this.enabled) return { enabled: false };
+    if (!this.authenticated) await this.authenticate();
+    return this._withReauth(() => this._request('GET', '/features'));
+  }
+
+  async support() {
+    try {
+      const response = await axios.get(this._publicUrl('/support'), {
+        timeout: 10000,
+        validateStatus: () => true
+      });
+      if (response.status < 200 || response.status >= 300) throw new Error('mateo_support_unavailable');
+      return response.data;
+    } catch (error) {
+      this.lastError = error.message || String(error);
+      throw error;
+    }
+  }
+
+  start(app) {
+    if (!this.enabled) {
+      this.logger?.info('[MATEO] Control plane disabled; set MATEO_BOT_KEY to connect this installation.');
+      return;
+    }
+    this.stop();
+    this.authenticate()
+      .then(() => this.heartbeat(app))
+      .then(() => this.checkForUpdates())
+      .then(result => {
+        if (result?.available) {
+          this.logger?.warn('[MATEO] Update available: ' + String(result.latest?.version || 'unknown'));
+        }
+      })
+      .catch(error => {
+        this.logger?.warn('[MATEO] Initial control-plane sync failed: ' + (error.message || error));
+      });
+
+    this._heartbeatTimer = setInterval(() => {
+      this.heartbeat(app).catch(error => this.logger?.warn('[MATEO] Heartbeat failed: ' + (error.message || error)));
+    }, this.heartbeatIntervalMs);
+    this._updateTimer = setInterval(() => {
+      this.checkForUpdates().then(result => {
+        if (result?.available) this.logger?.info('[MATEO] Update available: ' + String(result.latest?.version || 'unknown'));
+      }).catch(error => this.logger?.warn('[MATEO] Update check failed: ' + (error.message || error)));
+    }, this.updateCheckIntervalMs);
+    this._heartbeatTimer.unref?.();
+    this._updateTimer.unref?.();
+  }
+
+  async stop() {
+    if (this._heartbeatTimer) clearInterval(this._heartbeatTimer);
+    if (this._updateTimer) clearInterval(this._updateTimer);
+    this._heartbeatTimer = null;
+    this._updateTimer = null;
+    this.accessToken = null;
+    this.authenticated = false;
+  }
+
+  status() {
+    return {
+      enabled: this.enabled,
+      authenticated: this.authenticated,
+      installationId: this.installationId,
+      apiVersion: this.apiVersion,
+      channel: this.channel,
+      lastHeartbeatAt: this.lastHeartbeatAt,
+      lastUpdateCheckAt: this.lastUpdateCheckAt,
+      latestVersion: this.latestRelease?.version || null,
+      lastError: this.lastError
+    };
+  }
+}
+
+module.exports = MateoControlClient;

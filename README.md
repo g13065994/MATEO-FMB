@@ -80,3 +80,33 @@ Never commit AppState, .env, runtime databases, scheduler state, AI memory, or p
 ## Goal
 
 The core is designed to remain stable for years while the platform adapter, plugins, storage adapter and AI providers can evolve independently.
+
+## Mateo control plane integration
+
+MATEO-FMB is now a native client of the Mateo control plane hosted by the companion `g13065994/mateobots` project. The bot never talks directly to Supabase or Vercel internals; it only uses the versioned FMB API contract.
+
+### Connect an installation
+
+1. Sign in to the Mateo web dashboard.
+2. Create/register an FMB installation and copy the one-time Bot Key.
+3. Put the Bot Key in `MATEO_BOT_KEY` on the bot host.
+4. Set `MATEO_API_BASE_URL` to the deployed Mateo API. The default is `https://api.mateobot.vercel.app`.
+5. Start MATEO-FMB.
+
+At startup the client performs the Mateo challenge/session exchange, keeps the short-lived session token in memory, sends sanitized heartbeats, and checks the configured release channel for updates. Bot Keys are never logged, sent in URLs, or persisted by the client.
+
+The integration is intentionally fail-open for runtime continuity: if the Mateo control plane is temporarily unreachable, the Messenger bot can continue operating and the client retries on its normal heartbeat/update cadence. A revoked installation or credential is enforced by the Mateo API on the next authenticated request.
+
+### Mateo environment
+
+```text
+MATEO_API_BASE_URL=https://api.mateobot.vercel.app
+MATEO_API_VERSION=v1
+MATEO_BOT_KEY=
+MATEO_INSTALLATION_ID=
+MATEO_UPDATE_CHANNEL=stable
+MATEO_HEARTBEAT_INTERVAL_MS=300000
+MATEO_UPDATE_CHECK_INTERVAL_MS=21600000
+```
+
+The real Bot Key belongs in the deployment environment only. Do not commit it to Git.

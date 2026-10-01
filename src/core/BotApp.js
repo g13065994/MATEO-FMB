@@ -29,6 +29,7 @@ const AiProvider = require('../ai/AiProvider');
 const DatabaseHealthMonitor = require('./DatabaseHealthMonitor');
 const FreeFirePurchaseService = require('../services/FreeFirePurchaseService');
 const PaymentService = require('../payments/PaymentService');
+const MateoControlClient = require('../control/MateoControlClient');
 
 function createPlatformAdapter(config) {
   const name = String(config?.get('platform.adapter', 'eryxenx-fca') || 'eryxenx-fca').toLowerCase();
@@ -61,6 +62,7 @@ class BotApp {
     this.aiMemory = new AiMemoryStore({ rootDir, logger: this.logger });
     this.ai = new AiProvider({ axios, config: this.config, performance: this.performance, memory: this.aiMemory, logger: this.logger });
     this.payments = new PaymentService({ logger: this.logger });
+    this.mateo = new MateoControlClient({ config: this.config, logger: this.logger, version: this.config.get('version', '1.1.0') });
     this.freeFirePurchase = new FreeFirePurchaseService({ rootDir, logger: this.logger, db: this.db, payments: this.payments });
 
     this.recovery = new RecoveryManager({ state: this.state, logger: this.logger, safety: this.safety, performance: this.performance });
@@ -93,6 +95,7 @@ class BotApp {
       recovery: this.recovery,
       freeFirePurchase: this.freeFirePurchase,
       payments: this.payments,
+      mateo: this.mateo,
     };
 
     this.commands = new CommandRegistry({
@@ -197,6 +200,7 @@ class BotApp {
       });
 
       this.scheduler.start(() => this.connection.api);
+      this.mateo.start(this);
 
       if (this.config.get('backups.autoOnStart', true)) {
         await this.backup.create('startup').catch(error => this.logger.warn('Startup backup skipped: ' + error.message));
@@ -223,6 +227,7 @@ class BotApp {
       this.dbHealth.stop();
       this.performance.stopMonitoring();
       await this.connection.disconnect();
+      await this.mateo.stop();
       await this.health.stop();
       await this.db.write?.();
       this.db.close?.();
@@ -251,7 +256,8 @@ class BotApp {
       scheduler: this.scheduler.status(),
       safety: this.safety.status(),
       recovery: this.recovery.snapshot(),
-      performance: this.performance.snapshot()
+      performance: this.performance.snapshot(),
+      mateo: this.mateo.status()
     };
   }
 
