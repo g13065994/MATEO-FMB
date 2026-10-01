@@ -4,10 +4,11 @@ const crypto = require('crypto');
 const axios = require('axios');
 
 class FreeFirePurchaseService {
-  constructor({ rootDir, logger, db }) {
+  constructor({ rootDir, logger, db, payments }) {
     this.rootDir = rootDir;
     this.logger = logger;
     this.db = db;
+    this.payments = payments;
   }
 
   _env(name, required = true) {
@@ -78,26 +79,19 @@ class FreeFirePurchaseService {
     const id = 'MFF-' + Date.now().toString(36).toUpperCase() + '-' + crypto.randomBytes(5).toString('hex').toUpperCase();
     const callback = process.env.MATEO_FF_PAYSTACK_CALLBACK_URL || undefined;
 
-    const payment = await axios.post(
-      'https://api.paystack.co/transaction/initialize',
-      {
-        email: cleanEmail,
-        amount: String(amountNgn * 100),
-        currency: 'NGN',
-        reference: id,
-        callback_url: callback,
-        metadata: { order_id: id, sender_id: String(senderID || ''), game: 'Free Fire', uid: cleanUid, diamonds: Number(diamonds), provider_game: game, provider_denom: String(pack.Pack) }
-      },
-      { timeout: 20000, headers: { Authorization: 'Bearer ' + this._env('MATEO_PAYSTACK_SECRET_KEY'), 'Content-Type': 'application/json' } }
-    );
-
-    if (!payment.data?.status || !payment.data?.data?.authorization_url) throw new Error(payment.data?.message || 'Paystack could not initialize the payment.');
+    const payment = await this.payments.provider('paystack').initialize({
+      email: cleanEmail,
+      amountNgn,
+      reference: id,
+      callbackUrl: callback,
+      metadata: { order_id: id, sender_id: String(senderID || ''), game: 'Free Fire', uid: cleanUid, diamonds: Number(diamonds), provider_game: game, provider_denom: String(pack.Pack) }
+    });
 
     const order = {
       id, status: 'payment_pending', deliveryClaimed: false,
       senderID: String(senderID || ''), uid: cleanUid, diamonds: Number(diamonds), email: cleanEmail,
       amountNgn, provider: 'alu', providerGame: game, providerDenom: String(pack.Pack), providerPriceUsd: Number(pack.price),
-      paymentReference: id, paymentUrl: payment.data.data.authorization_url, providerOrderId: null, providerReference: null,
+      paymentReference: id, paymentUrl: payment.authorization_url, providerOrderId: null, providerReference: null,
       createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
     };
     await this._save(order);
@@ -111,12 +105,9 @@ class FreeFirePurchaseService {
     if (order.status === 'delivered') return order;
     if (order.status === 'delivery_pending' && order.providerOrderId) return this.refreshProviderOrder(order);
 
-    const verification = await axios.get('https://api.paystack.co/transaction/verify/' + encodeURIComponent(id), {
-      timeout: 20000, headers: { Authorization: 'Bearer ' + this._env('MATEO_PAYSTACK_SECRET_KEY') }
-    });
-    const payment = verification.data?.data;
+    const payment = await this.payments.provider('paystack').verify(id);
 
-    if (!verification.data?.status || payment?.status !== 'success') {
+    if (payment?.status !== 'success') {
       order.status = payment?.status === 'failed' ? 'payment_failed' : 'payment_pending';
       return this._save(order);
     }
@@ -212,10 +203,7 @@ class FreeFirePurchaseService {
   }
 
   verifyPaystackWebhook(rawBody, signature) {
-    const secret = this._env('MATEO_PAYSTACK_SECRET_KEY');
-    const expected = crypto.createHmac('sha512', secret).update(rawBody).digest('hex');
-    const a = Buffer.from(expected), b = Buffer.from(String(signature || ''));
-    return a.length === b.length && crypto.timingSafeEqual(a, b);
+    return this.payments.provider('paystack').verifyWebhookSignature(rawBody, signature);
   }
 
   async handlePaystackWebhook(payload) {
