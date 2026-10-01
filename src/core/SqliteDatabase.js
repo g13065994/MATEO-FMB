@@ -34,6 +34,7 @@ class SqliteDatabase {
     this.db.exec('PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA busy_timeout = 5000;');
     this.db.exec(
       'CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);' +
+      'CREATE TABLE IF NOT EXISTS payment_orders (order_id TEXT PRIMARY KEY, status TEXT NOT NULL, delivery_claimed INTEGER NOT NULL DEFAULT 0, data TEXT NOT NULL);' +
       'CREATE TABLE IF NOT EXISTS users (user_id TEXT PRIMARY KEY, data TEXT NOT NULL);' +
       'CREATE TABLE IF NOT EXISTS groups (thread_id TEXT PRIMARY KEY, data TEXT NOT NULL);' +
       'CREATE TABLE IF NOT EXISTS history (id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp TEXT NOT NULL, data TEXT NOT NULL);' +
@@ -126,6 +127,38 @@ class SqliteDatabase {
     const value = Number(amount);
     this.data.statistics[name] = Number(this.data.statistics[name] || 0) + (Number.isFinite(value) ? value : 0);
     return this.data.statistics[name];
+  }
+
+  getPaymentOrder(orderID) {
+    this._ensureOpen();
+    const row = this.db.prepare('SELECT data FROM payment_orders WHERE order_id = ?').get(String(orderID));
+    return row ? JSON.parse(row.data) : null;
+  }
+
+  async savePaymentOrder(order) {
+    if (!order?.id) throw new TypeError('Payment order requires an id.');
+    this._ensureOpen();
+    const data = JSON.stringify(order);
+    this.db.prepare(
+      'INSERT INTO payment_orders(order_id, status, delivery_claimed, data) VALUES(?, ?, ?, ?) ' +
+      'ON CONFLICT(order_id) DO UPDATE SET status=excluded.status, delivery_claimed=excluded.delivery_claimed, data=excluded.data'
+    ).run(String(order.id), String(order.status || 'created'), order.deliveryClaimed ? 1 : 0, data);
+    return order;
+  }
+
+  claimPaymentDelivery(orderID) {
+    this._ensureOpen();
+    const result = this.db.prepare(
+      "UPDATE payment_orders SET delivery_claimed = 1 WHERE order_id = ? AND status = 'payment_confirmed' AND delivery_claimed = 0"
+    ).run(String(orderID));
+    return Number(result.changes || 0) === 1;
+  }
+
+  releasePaymentDelivery(orderID) {
+    this._ensureOpen();
+    this.db.prepare(
+      "UPDATE payment_orders SET delivery_claimed = 0 WHERE order_id = ? AND status = 'payment_confirmed'"
+    ).run(String(orderID));
   }
 
   getUser(userID) {
