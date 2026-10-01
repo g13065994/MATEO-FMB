@@ -188,6 +188,7 @@ class FreeFirePurchaseService {
       throw new Error('Payment verification mismatch for order ' + id + '.');
     }
 
+    const webhookUrl = this._env('MATEO_FF_ALU_WEBHOOK_URL');
     const provider = await this._alu('/api/v.1/create', {
       method: 'POST',
       data: {
@@ -195,7 +196,7 @@ class FreeFirePurchaseService {
         denom: order.providerDenom,
         userid: order.uid,
         partner_orderid: order.id,
-        partner_webhook_url: process.env.MATEO_FF_ALU_WEBHOOK_URL || 'https://invalid.local/mateo-ff-webhook'
+        partner_webhook_url: webhookUrl
       }
     });
 
@@ -213,6 +214,22 @@ class FreeFirePurchaseService {
     const remote = response.data?.data || response.data;
     if (remote?.status) order.status = String(remote.status);
     if (remote?.provider_order_id) order.providerOrderId = remote.provider_order_id;
+    order.updatedAt = new Date().toISOString();
+    if (order.status === 'successful') order.status = 'delivered';
+    this._save();
+    return order;
+  }
+
+  handleProviderWebhook(payload) {
+    this._load();
+    const data = payload?.data || payload;
+    const id = String(data?.orderid || '').trim();
+    if (!id) throw new Error('Webhook order ID is missing.');
+    const order = this.orders.get(id);
+    if (!order) throw new Error('Unknown Free Fire webhook order: ' + id);
+    if (data.status) order.status = String(data.status) === 'successful' ? 'delivered' : String(data.status);
+    if (data.reference) order.providerReference = String(data.reference);
+    if (data.provider_order_id) order.providerOrderId = String(data.provider_order_id);
     order.updatedAt = new Date().toISOString();
     this._save();
     return order;
