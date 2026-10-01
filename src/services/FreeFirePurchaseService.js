@@ -171,6 +171,11 @@ class FreeFirePurchaseService {
     if (['successful', 'success', 'delivered'].includes(status)) {
       order.status = 'delivered';
       order.deliveredAt ||= new Date().toISOString();
+      order.deliveryClaimed = false;
+    } else if (['error', 'failed', 'cancelled', 'canceled'].includes(status)) {
+      order.status = 'delivery_failed';
+      order.deliveryFailedAt ||= new Date().toISOString();
+      order.deliveryClaimed = false;
     } else if (status) {
       order.status = 'delivery_pending';
     }
