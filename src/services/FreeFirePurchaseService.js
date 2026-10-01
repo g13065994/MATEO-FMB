@@ -232,7 +232,14 @@ class FreeFirePurchaseService {
     order.status = 'payment_confirmed';
     order.paymentConfirmedAt ||= new Date().toISOString();
     await this._save(order);
-    return this._fulfill(order);
+
+    setImmediate(() => {
+      this._fulfill(order).catch(error => {
+        this.logger?.warn?.('Async Free Fire fulfillment failed: ' + error.message);
+      });
+    });
+
+    return { accepted: true, order: order.id, status: order.status };
   }
 
   getOrder(reference) {
