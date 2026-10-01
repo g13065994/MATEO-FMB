@@ -220,6 +220,16 @@ class FreeFirePurchaseService {
     return order;
   }
 
+  verifyProviderWebhook(rawBody, timestamp, signature) {
+    const secret = this._env('MATEO_FF_ALU_WEBHOOK_SECRET');
+    const ts = Number(timestamp);
+    if (!Number.isFinite(ts) || Math.abs(Math.floor(Date.now() / 1000) - ts) > 300) return false;
+    const expected = crypto.createHmac('sha256', secret).update(String(timestamp) + '.' + rawBody).digest('hex');
+    const a = Buffer.from(expected);
+    const b = Buffer.from(String(signature || ''));
+    return a.length === b.length && crypto.timingSafeEqual(a, b);
+  }
+
   handleProviderWebhook(payload) {
     this._load();
     const data = payload?.data || payload;
