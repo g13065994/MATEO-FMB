@@ -27,6 +27,7 @@ const EryxenxFcaAdapter = require('../platform/EryxenxFcaAdapter');
 const axios = require('axios');
 const AiProvider = require('../ai/AiProvider');
 const DatabaseHealthMonitor = require('./DatabaseHealthMonitor');
+const FreeFirePurchaseService = require('../services/FreeFirePurchaseService');
 
 function createPlatformAdapter(config) {
   const name = String(config?.get('platform.adapter', 'eryxenx-fca') || 'eryxenx-fca').toLowerCase();
@@ -58,6 +59,7 @@ class BotApp {
 
     this.aiMemory = new AiMemoryStore({ rootDir, logger: this.logger });
     this.ai = new AiProvider({ axios, config: this.config, performance: this.performance, memory: this.aiMemory, logger: this.logger });
+    this.freeFirePurchase = new FreeFirePurchaseService({ rootDir, logger: this.logger });
 
     this.recovery = new RecoveryManager({ state: this.state, logger: this.logger, safety: this.safety, performance: this.performance });
     this.moderation = new ModerationManager({ db: this.db, groups: this.groups, permissions: this.permissions, state: this.state, logger: this.logger });
@@ -87,6 +89,7 @@ class BotApp {
       safety: this.safety,
       performance: this.performance,
       recovery: this.recovery,
+      freeFirePurchase: this.freeFirePurchase,
     };
 
     this.commands = new CommandRegistry({
