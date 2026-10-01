@@ -1,0 +1,32 @@
+name: Mateo FMB Release
+on:
+  push:
+    tags: ["v*.*.*"]
+permissions:
+  contents: read
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --ignore-scripts
+      - run: npm test
+      - run: npm run doctor
+      - name: Publish signed FMB release
+        env:
+          RELEASE_VERSION: ${{ github.ref_name }}
+          MATEO_API_BASE_URL: ${{ secrets.MATEO_API_BASE_URL }}
+          MATEO_RELEASE_PUBLISH_TOKEN: ${{ secrets.MATEO_RELEASE_PUBLISH_TOKEN }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          MATEO_ED25519_PRIVATE_KEY: ${{ secrets.MATEO_ED25519_PRIVATE_KEY }}
+          MATEO_ED25519_PUBLIC_KEY: ${{ secrets.MATEO_ED25519_PUBLIC_KEY }}
+          MATEO_ED25519_KEY_ID: ${{ secrets.MATEO_ED25519_KEY_ID }}
+          RELEASE_CHANGELOG: ${{ github.event.head_commit.message }}
+        run: node scripts/release/publish.mjs

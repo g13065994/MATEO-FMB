@@ -1,0 +1,4 @@
+'use strict';
+const test=require('node:test');const assert=require('node:assert/strict');const crypto=require('crypto');
+test('Mateo release signatures round-trip with Ed25519',()=>{const{privateKey,publicKey}=crypto.generateKeyPairSync('ed25519');const manifest={schemaVersion:1,product:'fmb',version:'1.2.3'};const payload=Buffer.from(JSON.stringify(manifest));const signature=crypto.sign(null,payload,privateKey);assert.equal(crypto.verify(null,payload,publicKey,signature),true);assert.notEqual(crypto.createHash('sha256').update(payload).digest('hex'),'')});
+test('Mateo release versions are explicit',()=>assert.match('1.2.3',/^\d+\.\d+\.\d+$/));

@@ -62,7 +62,7 @@ class BotApp {
     this.aiMemory = new AiMemoryStore({ rootDir, logger: this.logger });
     this.ai = new AiProvider({ axios, config: this.config, performance: this.performance, memory: this.aiMemory, logger: this.logger });
     this.payments = new PaymentService({ logger: this.logger });
-    this.mateo = new MateoControlClient({ config: this.config, logger: this.logger, version: this.config.get('version', '1.1.0') });
+    this.mateo = new MateoControlClient({ config: this.config, logger: this.logger, version: this.config.get('version', '1.1.0'), rootDir });
     this.freeFirePurchase = new FreeFirePurchaseService({ rootDir, logger: this.logger, db: this.db, payments: this.payments });
 
     this.recovery = new RecoveryManager({ state: this.state, logger: this.logger, safety: this.safety, performance: this.performance });
