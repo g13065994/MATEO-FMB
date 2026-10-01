@@ -14,6 +14,24 @@ class HealthServer {
       ? fs.readFileSync(path.join(process.cwd(), 'src', 'control', 'dashboard.html'), 'utf8') : null;
   }
 
+  async _readBody(req) {
+    return await new Promise((resolve, reject) => {
+      const chunks = [];
+      let size = 0;
+      req.on('data', chunk => {
+        size += chunk.length;
+        if (size > 1024 * 1024) {
+          reject(new Error('request_too_large'));
+          req.destroy();
+          return;
+        }
+        chunks.push(chunk);
+      });
+      req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+      req.on('error', reject);
+    });
+  }
+
   _send(res, status, payload) {
     res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
     res.end(JSON.stringify(payload));
@@ -34,6 +52,17 @@ class HealthServer {
           const status = this.app.status();
           const ready = status.status === 'online' && status.connected && status.safety?.status !== 'suspected_suspension';
           return this._send(res, ready ? 200 : 503, { ok: ready, status: status.status, connected: status.connected, safety: status.safety?.status });
+        }
+        if (url.pathname === '/ff/webhook' && req.method === 'POST') {
+          const rawBody = await this._readBody(req);
+          const timestamp = req.headers['x-webhook-timestamp'] || '';
+          const signature = req.headers['x-webhook-signature'] || '';
+          const service = this.app.freeFirePurchase;
+          if (!service?.verifyProviderWebhook(rawBody, timestamp, signature)) {
+            return this._send(res, 401, { error: 'invalid_signature' });
+          }
+          const order = service.handleProviderWebhook(JSON.parse(rawBody));
+          return this._send(res, 200, { ok: true, order: order.id, status: order.status });
         }
         if (url.pathname === '/metrics') return this._send(res, 200, this.app.status().performance);
         if (url.pathname === '/status') return this._send(res, 200, this.app.status());
