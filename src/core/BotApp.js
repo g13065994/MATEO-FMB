@@ -59,7 +59,7 @@ class BotApp {
 
     this.aiMemory = new AiMemoryStore({ rootDir, logger: this.logger });
     this.ai = new AiProvider({ axios, config: this.config, performance: this.performance, memory: this.aiMemory, logger: this.logger });
-    this.freeFirePurchase = new FreeFirePurchaseService({ rootDir, logger: this.logger });
+    this.freeFirePurchase = new FreeFirePurchaseService({ rootDir, logger: this.logger, db: this.db });
 
     this.recovery = new RecoveryManager({ state: this.state, logger: this.logger, safety: this.safety, performance: this.performance });
     this.moderation = new ModerationManager({ db: this.db, groups: this.groups, permissions: this.permissions, state: this.state, logger: this.logger });
