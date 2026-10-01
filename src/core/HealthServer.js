@@ -39,7 +39,7 @@ class HealthServer {
 
   start() {
     if (this.server) return this;
-    this.server = http.createServer((req, res) => {
+    this.server = http.createServer(async (req, res) => {
       try {
         const url = new URL(req.url || '/', 'http://localhost');
         if (url.pathname === '/' || url.pathname === '/dashboard') {
