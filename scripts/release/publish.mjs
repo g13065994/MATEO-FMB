@@ -5,7 +5,7 @@ if(!apiBase||!publishToken||!supabaseUrl||!serviceKey||!privateKey||!publicKey)t
 const sourceRepo=process.env.GITHUB_SYNC_REPO||"g13065994/MATEO-FMB";
 const sourceCommit=execFileSync("git",["rev-parse","HEAD"],{encoding:"utf8"}).trim();
 let baseCommit=process.env.GITHUB_SYNC_BASE_REF||"";
-if(!baseCommit){try{baseCommit=execFileSync("git",["rev-parse","HEAD^"],{encoding:"utf8"}).trim()}catch{baseCommit=sourceCommit}}
+if(!baseCommit){try{baseCommit=execFileSync("git",["describe","--tags","--abbrev=0","HEAD^"],{encoding:"utf8"}).trim()}catch{try{baseCommit=execFileSync("git",["rev-parse","HEAD^"],{encoding:"utf8"}).trim()}catch{baseCommit=sourceCommit}}}
 const protectedSyncPaths=[/^\\.env(?:\\.|$)/,/^data\\//,/^storage\\//,/^credentials\\//,/^config(?:\\/|\\.)/i,/^src\\/cmds\\//,/^src\\/events\\//,/^plugins\\//,/^node_modules\\//];
 function syncablePath(p){return !protectedSyncPaths.some(r=>r.test(p))}
 function changedFiles(){const raw=execFileSync("git",["diff","--name-status","--find-renames",baseCommit,sourceCommit],{encoding:"utf8"});return raw.split("\\n").filter(Boolean).map(line=>{const parts=line.split("\\t"),status=parts[0]||"M",path=status.startsWith("R")?parts[2]:parts[1];return{path,status:status.startsWith("A")?"added":status.startsWith("D")?"deleted":status.startsWith("R")?"renamed":"modified",previousPath:status.startsWith("R")?parts[1]:null,syncable:syncablePath(path)}})}
