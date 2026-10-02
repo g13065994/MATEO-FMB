@@ -5,7 +5,7 @@ module.exports = {
   aliases: ['botadmin'],
   category: 'system',
   description: 'Manage MATEO-FMB bot administrators.',
-  usage: '/admin <list|add|remove|check> [userID]',
+  usage: '/admin <list|add|remove> [userID]',
   role: 3,
 
   async execute(ctx) {
@@ -33,10 +33,6 @@ module.exports = {
       return ctx.reply(ctx.format('Bot admin', [`Removed: ${target}`, `Total admins: ${next.length}`]));
     }
 
-    if (action === 'check') {
-      return ctx.reply(ctx.format('Bot admin', [`User: ${target}`, `Admin: ${ids.includes(target) ? 'yes' : 'no'}`]));
-    }
-
-    return ctx.reply(ctx.error('Usage: /admin <list|add|remove|check> [userID]'));
+    return ctx.reply(ctx.error('Usage: /admin <list|add|remove> [userID]'));
   },
 };
